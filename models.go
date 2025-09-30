@@ -240,6 +240,17 @@ func (node *Node) EqualSizes() map[int64]*EqualSizes {
 	return files
 }
 
+// GetTotalSize returns the total size of all the files.
+func (node *Node) GetTotalSize() int64 {
+	var totalSize int64
+
+	for _, file := range node.GetFiles() {
+		totalSize += file.Info.Size
+	}
+
+	return totalSize
+}
+
 // sortNodesRecursively sorts the children of a node alphabetically by name and applies the sort recursively to
 // directories.
 func (node *Node) sortNodesRecursively() {

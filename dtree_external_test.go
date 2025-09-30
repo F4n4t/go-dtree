@@ -67,6 +67,7 @@ func TestCollect(t *testing.T) {
 	// create the expected structure
 	expectedParent := createFileNode(tempDir, true, 4096)
 	child := createFileNode(filepath.Join(tempDir, "test"), true, 4096)
+	totalSize := 11 // sum of all the files
 	subChild1 := createFileNode(filepath.Join(child.FullPath, "test.mkv"), false, 4)
 	subChild2 := createFileNode(filepath.Join(child.FullPath, "test.nfo"), false, 3)
 	subChild3 := createFileNode(filepath.Join(child.FullPath, "test2.mkv"), false, 4)
@@ -348,6 +349,11 @@ func TestCollect(t *testing.T) {
 		equalNode(t, gotMap[3].Files[0], subChild2)
 	})
 
+	t.Run("TotalSize", func(t *testing.T) {
+		assert.EqualValues(t, totalSize, rootNode.GetTotalSize())
+	})
+
+	// this must come before TotalSize, because it changes the size.
 	t.Run("UpdateFileInfo", func(t *testing.T) {
 		node, gotErr := rootNode.GetFileByPath(subChild1.FullPath)
 		require.NoError(t, gotErr)
