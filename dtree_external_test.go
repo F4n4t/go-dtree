@@ -408,3 +408,145 @@ func TestCollect(t *testing.T) {
 		assert.NoFileExists(t, toRemoveNode.FullPath)
 	})
 }
+
+func TestCollectWithExclude(t *testing.T) {
+	// setup test files
+	testFiles := map[string][]byte{
+		filepath.Join("test", "test.nfo"):          []byte("asd"),
+		filepath.Join("test", "test.mkv"):          []byte("asdf"),
+		filepath.Join("test", "test2.mkv"):         []byte("asdf"),
+		filepath.Join("test/Sample", "sample.mkv"): []byte("sample"),
+		filepath.Join("test/Subs", "subs.idx"):     []byte("subs.idx"),
+		filepath.Join("test/Subs", "subs.sub"):     []byte("subs.sub"),
+	}
+	tempDir := t.TempDir()
+	setupTestDir(t, tempDir, testFiles)
+
+	// create the expected structure
+	expectedParent := createFileNode(tempDir, true, 4096)
+	child := createFileNode(filepath.Join(tempDir, "test"), true, 4096)
+
+	subChild1 := createFileNode(filepath.Join(child.FullPath, "Sample"), true, 4096)
+	subChild2 := createFileNode(filepath.Join(child.FullPath, "Subs"), true, 4096)
+	subChild3 := createFileNode(filepath.Join(child.FullPath, "test.mkv"), false, 4)
+	subChild4 := createFileNode(filepath.Join(child.FullPath, "test.nfo"), false, 3)
+	subChild5 := createFileNode(filepath.Join(child.FullPath, "test2.mkv"), false, 4)
+
+	subSubChild1 := createFileNode(filepath.Join(subChild1.FullPath, "sample.mkv"), false, 6)
+	subSubChild2 := createFileNode(filepath.Join(subChild2.FullPath, "subs.idx"), false, 8)
+	subSubChild3 := createFileNode(filepath.Join(subChild2.FullPath, "subs.sub"), false, 8)
+	subChild1.Children = append(subChild1.Children, subSubChild1)
+	subChild2.Children = append(subChild2.Children, subSubChild2, subSubChild3)
+
+	child.Children = append(child.Children, subChild1, subChild2, subChild3, subChild4, subChild5)
+
+	expectedParent.Children = append(expectedParent.Children, child)
+
+	rootNode, err := dtree.Collect(tempDir)
+	require.NoError(t, err)
+
+	t.Run("VerifyCollectedStructure", func(t *testing.T) {
+		equalNode(t, expectedParent, rootNode)
+	})
+
+	t.Run("IgnoreSampleFolder", func(t *testing.T) {
+		baseDir := filepath.Join(tempDir, "test")
+
+		rootNode, err := dtree.Collect(baseDir)
+		require.NoError(t, err)
+		assert.Equal(t, "Sample", rootNode.Children[0].Info.Name)
+
+		t.Run("ByName", func(t *testing.T) {
+			rootNode, err := dtree.Collect(baseDir, "Sample")
+			require.NoError(t, err)
+			assert.NotEqual(t, "Sample", rootNode.Children[0].Info.Name)
+		})
+
+		t.Run("ByWrongName", func(t *testing.T) {
+			rootNode, err := dtree.Collect(baseDir, "sampl")
+			require.NoError(t, err)
+			assert.Equal(t, "Sample", rootNode.Children[0].Info.Name)
+		})
+
+		t.Run("ByPattern", func(t *testing.T) {
+			rootNode, err := dtree.Collect(baseDir, "?ample")
+			require.NoError(t, err)
+			assert.NotEqual(t, "Sample", rootNode.Children[0].Info.Name)
+		})
+	})
+
+	t.Run("IgnoreSampleFile", func(t *testing.T) {
+		baseDir := filepath.Join(tempDir, "test")
+
+		rootNode, err = dtree.Collect(baseDir)
+		require.NoError(t, err)
+		require.NotEmpty(t, rootNode.Children[0].Children)
+		assert.Equal(t, "sample.mkv", rootNode.Children[0].Children[0].Info.Name)
+
+		t.Run("ByName", func(t *testing.T) {
+			rootNode, err = dtree.Collect(baseDir, "sample.mkv")
+			require.NoError(t, err)
+			assert.Equal(t, "Sample", rootNode.Children[0].Info.Name)
+			assert.Empty(t, rootNode.Children[0].Children)
+		})
+
+		t.Run("ByPath", func(t *testing.T) {
+			rootNode, err = dtree.Collect(baseDir, "Sample/sample.mkv")
+			require.NoError(t, err)
+			assert.Equal(t, "Sample", rootNode.Children[0].Info.Name)
+			assert.Empty(t, rootNode.Children[0].Children)
+		})
+
+		t.Run("ByPattern", func(t *testing.T) {
+			rootNode, err = dtree.Collect(baseDir, "?amp*e.mkv")
+			require.NoError(t, err)
+			assert.Equal(t, "Sample", rootNode.Children[0].Info.Name)
+			assert.Empty(t, rootNode.Children[0].Children)
+		})
+	})
+
+	t.Run("IgnoreMultipleFiles", func(t *testing.T) {
+		baseDir := filepath.Join(tempDir, "test")
+
+		rootNode, err = dtree.Collect(baseDir)
+		require.NoError(t, err)
+
+		gotFile, err := rootNode.GetFileByAbsolutePath(subSubChild1.FullPath)
+		require.NoError(t, err)
+		equalNode(t, subSubChild1, gotFile)
+
+		gotFile, err = rootNode.GetFileByAbsolutePath(subChild3.FullPath)
+		require.NoError(t, err)
+		equalNode(t, subChild3, gotFile)
+
+		t.Run("ByName", func(t *testing.T) {
+			rootNode, err = dtree.Collect(baseDir, "sample.mkv", "test.mkv")
+			require.NoError(t, err)
+
+			_, err = rootNode.GetFileByAbsolutePath(subSubChild1.FullPath)
+			assert.ErrorIs(t, err, dtree.ErrNotFound)
+
+			_, err = rootNode.GetFileByAbsolutePath(subChild3.FullPath)
+			assert.ErrorIs(t, err, dtree.ErrNotFound)
+		})
+
+		t.Run("ByPattern", func(t *testing.T) {
+			rootNode, err = dtree.Collect(baseDir, "s?mple.mkv", "te*.mkv")
+			require.NoError(t, err)
+
+			_, err = rootNode.GetFileByAbsolutePath(subSubChild1.FullPath)
+			assert.ErrorIs(t, err, dtree.ErrNotFound)
+
+			_, err = rootNode.GetFileByAbsolutePath(subChild3.FullPath)
+			assert.ErrorIs(t, err, dtree.ErrNotFound)
+		})
+	})
+
+	// cannot be ignored...
+	t.Run("IgnoreBaseDir", func(t *testing.T) {
+		baseDir := filepath.Join(tempDir, "test")
+
+		rootNode, err = dtree.Collect(baseDir, "test")
+		require.NoError(t, err)
+	})
+}
