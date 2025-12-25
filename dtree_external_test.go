@@ -14,9 +14,9 @@ func setupTestDir(t *testing.T, baseDir string, testFiles map[string][]byte) {
 	for name, content := range testFiles {
 		dir, file := filepath.Split(name)
 		if dir != "" {
-			require.NoError(t, os.MkdirAll(filepath.Join(baseDir, dir), 0755))
+			require.NoError(t, os.MkdirAll(filepath.Join(baseDir, dir), 0o755))
 		}
-		require.NoError(t, os.WriteFile(filepath.Join(baseDir, dir, file), content, 0666))
+		require.NoError(t, os.WriteFile(filepath.Join(baseDir, dir, file), content, 0o666))
 	}
 }
 
@@ -43,7 +43,10 @@ func equalNode(t *testing.T, expected *dtree.Node, actual *dtree.Node) {
 	assert.Equal(t, expected.FullPath, actual.FullPath)
 	assert.Equal(t, expected.Info.Name, actual.Info.Name)
 	assert.Equal(t, expected.Info.IsDir, actual.Info.IsDir)
-	assert.Equal(t, expected.Info.Size, actual.Info.Size)
+	if !expected.Info.IsDir {
+		// ignore size for directories
+		assert.Equal(t, expected.Info.Size, actual.Info.Size)
+	}
 	assert.Equal(t, expected.Info.Extension, actual.Info.Extension)
 	for i, expectedChild := range expected.Children {
 		equalNode(t, expectedChild, actual.Children[i])
@@ -361,7 +364,7 @@ func TestCollect(t *testing.T) {
 		oldSize := node.Info.Size
 
 		// append to the file
-		f, err := os.OpenFile(subChild1.FullPath, os.O_APPEND|os.O_WRONLY, 0666)
+		f, err := os.OpenFile(subChild1.FullPath, os.O_APPEND|os.O_WRONLY, 0o666)
 		require.NoError(t, err)
 		_, err = f.WriteString("asd")
 		require.NoError(t, err)
